@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>모란이 피다</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  width:100%; height:100%;
+  overflow:hidden; background:#000;
+  font-family: 'Georgia', 'Nanum Myeongjo', serif;
+  touch-action: none;
+}
+
+/* 카메라 */
+#cam {
+  position:fixed; inset:0;
+  width:100%; height:100%;
+  object-fit:cover; z-index:0;
+}
+
+/* 메인 캔버스 */
+#canvas {
+  position:fixed; inset:0;
+  width:100%; height:100%;
+  z-index:2; pointer-events:none;
+}
+
+/* ── 인트로 화면 ── */
+#intro {
+  position:fixed; inset:0; z-index:60;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  gap:0;
+  background: radial-gradient(ellipse at 50% 45%,
+    #1a0e08 0%, #0a0604 100%);
+  transition: opacity 1.2s ease;
+}
+
+#intro-title {
+  color: #e8c9a0;
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  margin-bottom: 28px;
+  opacity: 0.6;
+  animation: fadeSlideUp 1s ease 0.3s both;
+}
+
+#intro-main {
+  color: #f0dfc0;
+  font-size: 38px;
+  letter-spacing: 0.15em;
+  line-height: 1.3;
+  text-align: center;
+  text-shadow: 0 0 60px rgba(230,180,100,0.25);
+  animation: fadeSlideUp 1s ease 0.5s both;
+}
+
+#intro-sub {
+  color: rgba(220,195,155,0.5);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  margin-top: 32px;
+  text-align:center;
+  line-height:1.8;
+  animation: fadeSlideUp 1s ease 0.7s both;
+}
+
+#intro-divider {
+  width: 1px; height: 50px;
+  background: linear-gradient(180deg, transparent, rgba(220,180,100,0.5), transparent);
+  margin: 36px auto;
+  animation: fadeSlideUp 1s ease 0.9s both;
+}
+
+#start-btn {
+  background: transparent;
+  border: 1px solid rgba(220,185,120,0.55);
+  color: #e8c9a0;
+  font-family: 'Georgia', serif;
+  font-size: 14px;
+  padding: 14px 44px;
+  border-radius: 2px;
+  cursor: pointer;
+  letter-spacing: 0.25em;
+  transition: all 0.4s;
+  animation: fadeSlideUp 1s ease 1.1s both;
+}
+#start-btn:active {
+  background: rgba(220,185,120,0.12);
+  transform: scale(0.98);
+}
+
+@keyframes fadeSlideUp {
+  from { opacity:0; transform:translateY(16px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+
+/* ── 감지 안내 ── */
+#guide {
+  position:fixed; bottom:0; left:0; right:0; z-index:10;
+  padding: 20px 24px 36px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+  display:none;
+  flex-direction:column; align-items:center; gap:10px;
+  pointer-events:none;
+  transition: opacity 1s ease;
+}
+
+#guide-text {
+  color: rgba(235,210,170,0.85);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-align: center;
+}
+
+#guide-scan {
+  display:flex; align-items:center; gap:10px;
+}
+.scan-bar {
+  width: 40px; height: 1px;
+  background: rgba(220,185,120,0.5);
+}
+.scan-dot {
+  width: 5px; height: 5px;
+  border-radius:50%;
+  background: rgba(220,185,120,0.8);
+  animation: scanBlink 1.4s ease-in-out infinite;
+}
+@keyframes scanBlink {
+  0%,100%{ opacity:0.3; } 50%{ opacity:1; }
+}
+
+/* ── 활성화 후 상단 타이틀 ── */
+#live-title {
+  position:fixed; top:0; left:0; right:0; z-index:10;
+  padding: 22px 24px 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 100%);
+  display:none;
+  pointer-events:none;
+}
+#live-title-text {
+  color: rgba(235,210,165,0.82);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  text-align:center;
+}
+
+/* ── Canvas 기반 파티클들은 JS로 처리 ── */
+
+/* ── 나비 (CSS 애니메이션) ── */
+.butterfly {
+  position:fixed; z-index:3;
+  pointer-events:none;
+  animation: butterflyFly linear forwards;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.15));
+}
+@keyframes butterflyFly {
+  0%   { opacity:0; }
+  8%   { opacity:0.9; }
+  92%  { opacity:0.9; }
+  100% { opacity:0; }
+}
+
+/* ── 꽃잎 ── */
+.petal {
+  position:fixed; z-index:3;
+  pointer-events:none;
+  animation: petalFall linear forwards;
+  transform-origin: center;
+}
+@keyframes petalFall {
+  0%   { opacity:0; transform: rotate(0deg) translateX(0); }
+  5%   { opacity:0.85; }
+  95%  { opacity:0.7; }
+  100% { opacity:0; transform: rotate(var(--dr)) translateX(var(--dx)); }
+}
+</style>
+</head>
+<body>
+
+<!-- 카메라 -->
+<video id="cam" autoplay playsinline muted></video>
+
+<!-- 메인 캔버스 (꽃잎, 파티클, 오버레이) -->
+<canvas id="canvas"></canvas>
+
+<!-- 인트로 -->
+<div id="intro">
+  <div id="intro-title">INTERACTIVE EXHIBITION</div>
+  <div id="intro-main">모란이<br>피다</div>
+  <div id="intro-sub">카메라로 작품을 향해<br>천천히 비춰주세요</div>
+  <div id="intro-divider"></div>
+  <button id="start-btn">체험 시작</button>
+</div>
+
+<!-- 감지 안내 -->
+<div id="guide">
+  <div id="guide-scan">
+    <div class="scan-bar"></div>
+    <div class="scan-dot"></div>
+    <div class="scan-bar"></div>
+  </div>
+  <div id="guide-text">작품을 향해 카메라를 비춰주세요</div>
+</div>
+
+<!-- 활성화 후 타이틀 -->
+<div id="live-title">
+  <div id="live-title-text">모란이 피다 — 체험 중</div>
+</div>
+
+<script>
+// ── 색상 팔레트 (원화에서 추출) ──────────────────────
+const PALETTE = {
+  pink:   ['#f4c5c5','#e8a0a0','#f7d5d5','#d4888a','#f0b8b8'],
+  gold:   ['#e8c080','#d4a855','#f0d090','#c89040','#ead898'],
+  cream:  ['#f5ead8','#e8d8c0','#f0e0c8','#ddd0b8','#f8f0e0'],
+  green:  ['#8ab878','#6a9858','#a0c888','#7aaa68'],
+};
+const ALL_COLORS = [...PALETTE.pink, ...PALETTE.gold, ...PALETTE.cream];
+
+// ── Canvas setup ──────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width  = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ─────────────────────────────────────────────
+let active     = false;   // 체험 활성화
+let detected   = false;   // 그림 감지됨
+let detectTimer= 0;
+let particles  = [];
+let butterflies= [];
+let glowAlpha  = 0;
+let ripples    = [];
+let lastTS     = 0;
+let frameCount = 0;
+
+// 색상 감지용 (카메라 픽셀 분석)
+let analyzeCanvas, analyzeCtx;
+
+// ── 색 분석 캔버스 (작게) ─────────────────────────────
+function setupAnalyzer() {
+  analyzeCanvas = document.createElement('canvas');
+  analyzeCanvas.width  = 80;
+  analyzeCanvas.height = 60;
+  analyzeCtx = analyzeCanvas.getContext('2d', { willReadFrequently: true });
+}
+
+// ── 원화 감지: 카메라 프레임에서 살구색 배경 + 초록 비율 분석 ──
+function analyzeFrame(videoEl) {
+  if (!analyzeCtx || !videoEl.videoWidth) return 0;
+  analyzeCtx.drawImage(videoEl, 0, 0, 80, 60);
+  const data = analyzeCtx.getImageData(0, 0, 80, 60).data;
+
+  let pinkScore = 0, greenScore = 0, beigeScore = 0, total = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i+1], b = data[i+2];
+    total++;
+    // 살구/베이지 배경
+    if (r > 180 && r < 240 && g > 150 && g < 210 && b > 130 && b < 190 && r > g && g > b)
+      beigeScore++;
+    // 분홍 꽃
+    if (r > 180 && g < 160 && b < 160 && r > g + 20)
+      pinkScore++;
+    // 초록 잎
+    if (g > 100 && g > r + 10 && g > b + 10)
+      greenScore++;
+  }
+
+  const beigeRatio = beigeScore / total;
+  const pinkRatio  = pinkScore  / total;
+  const greenRatio = greenScore / total;
+
+  // 살구배경 + 분홍꽃 + 초록잎이 같이 있으면 원화!
+  const score = (beigeRatio * 2.5) + (pinkRatio * 3.0) + (greenRatio * 2.0);
+  return Math.min(score, 1);
+}
+
+// ── 꽃잎 파티클 ───────────────────────────────────────
+class Petal {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.x    = Math.random() * W;
+    this.y    = -20 - Math.random() * 80;
+    this.vx   = (-0.8 + Math.random() * 1.6) * 0.8;
+    this.vy   = 0.6 + Math.random() * 1.0;
+    this.rot  = Math.random() * Math.PI * 2;
+    this.vrot = (-0.03 + Math.random() * 0.06);
+    this.w    = 14 + Math.random() * 22;
+    this.h    = this.w * (0.45 + Math.random() * 0.25);
+    this.color= ALL_COLORS[Math.floor(Math.random() * ALL_COLORS.length)];
+    this.alpha= 0.55 + Math.random() * 0.35;
+    this.swing= Math.random() * Math.PI * 2;
+    this.swingSpd = 0.02 + Math.random() * 0.02;
+    this.life = 0;
+    this.maxLife = 280 + Math.random() * 200;
+  }
+  update() {
+    this.swing += this.swingSpd;
+    this.vx += Math.sin(this.swing) * 0.015;
+    this.x  += this.vx;
+    this.y  += this.vy;
+    this.rot += this.vrot;
+    this.life++;
+    if (this.y > H + 30 || this.life > this.maxLife) this.reset();
+  }
+  draw() {
+    const fade = this.life < 20 ? this.life/20 :
+                 this.life > this.maxLife - 30 ? (this.maxLife - this.life)/30 : 1;
+    ctx.save();
+    ctx.globalAlpha = this.alpha * fade;
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, this.w/2, this.h/2, 0, 0, Math.PI*2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    // 광택
+    ctx.beginPath();
+    ctx.ellipse(-this.w*0.1, -this.h*0.15, this.w*0.18, this.h*0.12, -0.3, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── 빛 입자 ───────────────────────────────────────────
+class Spark {
+  constructor() { this.reset(); }
+  reset() {
+    this.x     = W * 0.15 + Math.random() * W * 0.7;
+    this.y     = H * 0.1  + Math.random() * H * 0.7;
+    this.r     = 1.5 + Math.random() * 3;
+    this.alpha = 0;
+    this.maxA  = 0.3 + Math.random() * 0.45;
+    this.phase = Math.random() * Math.PI * 2;
+    this.spd   = 0.015 + Math.random() * 0.025;
+    this.color = Math.random() > 0.5 ?
+      `rgba(240,200,140,VAL)` : `rgba(255,220,180,VAL)`;
+  }
+  update() {
+    this.phase += this.spd;
+    this.alpha = this.maxA * (0.5 + 0.5 * Math.sin(this.phase));
+  }
+  draw() {
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+    ctx.fillStyle = this.color.replace('VAL', '1');
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── 파문 (감지 순간) ──────────────────────────────────
+class Ripple {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.r = 0; this.maxR = Math.max(W,H) * 0.6;
+    this.alpha = 0.5;
+    this.color = PALETTE.pink[0];
+  }
+  update() {
+    this.r     += 6;
+    this.alpha *= 0.94;
+    return this.alpha > 0.01;
+  }
+  draw() {
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── 나비 (SVG canvas 드로잉) ──────────────────────────
+class Butterfly {
+  constructor() { this.reset(); }
+  reset() {
+    // 진입 방향
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) { this.x = -50; this.y = H * 0.2 + Math.random()*H*0.5; }
+    else if (side===1){ this.x = W+50; this.y = H*0.2+Math.random()*H*0.5; }
+    else { this.x = W*0.1+Math.random()*W*0.8; this.y = -50; }
+
+    this.tx   = W * 0.15 + Math.random() * W * 0.7;
+    this.ty   = H * 0.15 + Math.random() * H * 0.6;
+    this.spd  = 0.4 + Math.random() * 0.5;
+    this.waveT= Math.random() * Math.PI * 2;
+    this.waveA= 20 + Math.random() * 30;
+    this.waveSpd = 0.04 + Math.random() * 0.03;
+    this.flapT= Math.random() * Math.PI * 2;
+    this.flapSpd = 0.12 + Math.random() * 0.08;
+    this.size = 18 + Math.random() * 14;
+    this.alpha= 0;
+    this.done = false;
+    this.pauseTimer = 0;
+    this.pauseMax   = 60 + Math.random() * 120;
+    this.color1 = PALETTE.pink[Math.floor(Math.random()*PALETTE.pink.length)];
+    this.color2 = PALETTE.gold[Math.floor(Math.random()*PALETTE.gold.length)];
+    this.angle  = Math.atan2(this.ty - this.y, this.tx - this.x);
+  }
+
+  update() {
+    this.alpha = Math.min(0.88, this.alpha + 0.025);
+    this.waveT   += this.waveSpd;
+    this.flapT   += this.flapSpd;
+
+    const dx = this.tx - this.x;
+    const dy = this.ty - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    if (dist < 15) {
+      this.pauseTimer++;
+      if (this.pauseTimer > this.pauseMax) {
+        // 새 목적지
+        this.tx = W*0.1 + Math.random()*W*0.8;
+        this.ty = H*0.1 + Math.random()*H*0.7;
+        this.pauseTimer = 0;
+      }
+    } else {
+      this.angle = Math.atan2(dy, dx);
+      const perp = this.angle + Math.PI/2;
+      this.x += Math.cos(this.angle) * this.spd + Math.cos(perp) * Math.sin(this.waveT) * 0.5;
+      this.y += Math.sin(this.angle) * this.spd + Math.sin(perp) * Math.sin(this.waveT) * 0.5;
+    }
+  }
+
+  draw() {
+    const flap  = Math.abs(Math.sin(this.flapT)); // 0~1
+    const wingW = this.size * (0.3 + flap * 0.7);
+    const wingH = this.size * 0.75;
+
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.translate(this.x, this.y);
+
+    // 오른쪽 날개
+    ctx.save();
+    ctx.scale(1, 1);
+    ctx.beginPath();
+    ctx.ellipse( wingW*0.55, -wingH*0.15, wingW*0.9, wingH*0.55, -0.4, 0, Math.PI*2);
+    ctx.fillStyle = this.color1;
+    ctx.globalAlpha = this.alpha * 0.82;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,60,40,0.25)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // 아랫날개
+    ctx.beginPath();
+    ctx.ellipse( wingW*0.45,  wingH*0.22, wingW*0.65, wingH*0.4,  0.3, 0, Math.PI*2);
+    ctx.fillStyle = this.color2;
+    ctx.globalAlpha = this.alpha * 0.75;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // 왼쪽 날개 (반전)
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.beginPath();
+    ctx.ellipse( wingW*0.55, -wingH*0.15, wingW*0.9, wingH*0.55, -0.4, 0, Math.PI*2);
+    ctx.fillStyle = this.color1;
+    ctx.globalAlpha = this.alpha * 0.82;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,60,40,0.25)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse( wingW*0.45,  wingH*0.22, wingW*0.65, wingH*0.4,  0.3, 0, Math.PI*2);
+    ctx.fillStyle = this.color2;
+    ctx.globalAlpha = this.alpha * 0.75;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // 몸통
+    ctx.globalAlpha = this.alpha;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 2, this.size*0.35, 0, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(60,35,20,0.7)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ── 파티클 초기화 ─────────────────────────────────────
+let petals   = [];
+let sparks   = [];
+
+function initParticles() {
+  petals  = Array.from({length: 28}, () => {
+    const p = new Petal();
+    p.y = Math.random() * H; // 처음엔 화면 전체에
+    p.life = Math.floor(Math.random() * p.maxLife);
+    return p;
+  });
+  sparks  = Array.from({length: 35}, () => new Spark());
+}
+
+// ── 광채 오버레이 ─────────────────────────────────────
+function drawGlow() {
+  if (glowAlpha <= 0) return;
+  const grad = ctx.createRadialGradient(W/2, H*0.45, 0, W/2, H*0.45, W*0.7);
+  grad.addColorStop(0,   `rgba(240,200,140,${glowAlpha * 0.18})`);
+  grad.addColorStop(0.4, `rgba(220,170,100,${glowAlpha * 0.10})`);
+  grad.addColorStop(1,   'transparent');
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// ── 비네트 (주변 어둡게) ──────────────────────────────
+function drawVignette() {
+  const grad = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, H*0.85);
+  grad.addColorStop(0,   'transparent');
+  grad.addColorStop(1,   'rgba(0,0,0,0.45)');
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// ── 메인 루프 ─────────────────────────────────────────
+function loop(ts) {
+  const dt = Math.min((ts - lastTS)/1000, 0.05);
+  lastTS = ts;
+  frameCount++;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (!active) { requestAnimationFrame(loop); return; }
+
+  // 색 분석 (매 8프레임)
+  if (frameCount % 8 === 0) {
+    const score = analyzeFrame(document.getElementById('cam'));
+    if (score > 0.22) {
+      detectTimer = Math.min(detectTimer + 1, 40);
+    } else {
+      detectTimer = Math.max(detectTimer - 0.5, 0);
+    }
+
+    const wasDetected = detected;
+    detected = detectTimer > 15;
+
+    // 처음 감지 순간: 파문 발생
+    if (detected && !wasDetected) {
+      ripples.push(new Ripple(W/2, H/2));
+      ripples.push(new Ripple(W*0.3, H*0.4));
+      ripples.push(new Ripple(W*0.7, H*0.55));
+      // 나비 추가
+      if (butterflies.length < 3) {
+        butterflies.push(new Butterfly());
+        setTimeout(() => butterflies.push(new Butterfly()), 800);
+      }
+    }
+  }
+
+  // 광채 목표
+  const targetGlow = detected ? 1 : 0.3;
+  glowAlpha += (targetGlow - glowAlpha) * 0.04;
+
+  // 파티클 밀도 조절
+  const targetPetals = detected ? 38 : 16;
+  if (petals.length < targetPetals && frameCount % 12 === 0) {
+    petals.push(new Petal());
+  }
+
+  // ── 그리기 ────────────────────────────────────────
+  drawGlow();
+
+  // 빛 입자
+  sparks.forEach(s => { s.update(); s.draw(); });
+
+  // 꽃잎
+  petals.forEach(p => { p.update(); p.draw(); });
+  if (petals.length > targetPetals + 5) petals.splice(0, 1);
+
+  // 파문
+  ripples = ripples.filter(r => {
+    const alive = r.update();
+    if (alive) r.draw();
+    return alive;
+  });
+
+  // 나비
+  butterflies.forEach(b => { b.update(); b.draw(); });
+
+  // 비네트
+  drawVignette();
+
+  // 감지 상태에 따라 안내 텍스트 전환
+  const guideEl = document.getElementById('guide');
+  const guideTxt= document.getElementById('guide-text');
+  if (detected) {
+    guideEl.style.opacity = '0';
+  } else {
+    guideEl.style.opacity = '1';
+    guideTxt.textContent  = '작품을 향해 카메라를 비춰주세요';
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ── 시작 ──────────────────────────────────────────────
+document.getElementById('start-btn').addEventListener('click', async () => {
+  const introEl = document.getElementById('intro');
+  introEl.style.opacity = '0';
+  setTimeout(() => introEl.style.display = 'none', 1200);
+
+  const camEl = document.getElementById('cam');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    camEl.srcObject = stream;
+    await camEl.play();
+  } catch(e) {
+    console.warn('camera error:', e);
+  }
+
+  setupAnalyzer();
+  initParticles();
+
+  document.getElementById('guide').style.display    = 'flex';
+  document.getElementById('live-title').style.display = 'block';
+
+  active = true;
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
